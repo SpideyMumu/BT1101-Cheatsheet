@@ -1,0 +1,442 @@
+---
+title: "BT1101 Final Cheatsheet"
+author: "Muhd Mursyid"
+date: "4/25/2022"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    toc_collapsed: true
+    toc_depth: 3
+    theme: lumen
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Libraries
+
+```{r libraries, echo = TRUE, message=FALSE}
+library("tidyverse")
+library("rpivotTable")
+library("knitr")
+library("dplyr") #need to call the library before you use the package
+library("tidyr")
+library("psych")
+library("RColorBrewer")
+library("rcompanion")
+library("rstatix")
+library("Rmisc")
+library(factoextra) # for fviz_cluster()
+library(wooldridge)
+library(car)
+library(lpSolve)
+
+library(readxl)
+Ecommerceshipping <- read_excel("Ecommerceshipping.xlsx")
+d1 <- read.csv("CardioGoodFitness.csv")
+recid = read.csv(file = 'recid.csv', header= TRUE)
+```
+
+## Data Visualisation
+### Pie Chart
+
+```{r pie chart, echo = TRUE}
+# percentage label
+ProductImpt_Freq <- Ecommerceshipping %>% count('Product_importance')
+pie.percent <- 100 * round(ProductImpt_Freq$freq/sum(ProductImpt_Freq$freq), 3)
+label <- paste(ProductImpt_Freq$Product_importance,
+               ", ",
+               pie.percent,
+               "%",
+               sep = "")
+#pie chart
+pie(ProductImpt_Freq$freq,
+     labels = label,
+     col = c("darkorange", "darkorange3", "darkorange4"),
+     main = "Product Importance")
+```
+
+### Histogram
+```{r histogram, echo = TRUE}
+#histogram
+cost.hist <- hist(Ecommerceshipping$Cost_of_the_Product, 
+                  main = "Histogram of Cost of Products",
+                  xlab = "Cost of Product",
+                  ylab = "Number of Customers",
+                  col = "darkorange",
+                  ylim = c(0, 1800),
+                  labels = TRUE)
+
+#generating a table from histogram
+CostProduct <- cut(Ecommerceshipping$Cost_of_the_Product, cost.hist$breaks)
+CostProduct.table <- table(CostProduct)
+kable(CostProduct.table, caption = "Frequency distribution by Cost of Product")
+```
+
+### Bar Chart
+```{r bar chart, echo = TRUE}
+WarehouseBlk_Freq <- Ecommerceshipping %>% count('Warehouse_block')
+df2 <- Ecommerceshipping %>% group_by(Warehouse_block, Reached.on.Time_Y.N) %>% tally()
+WarehouseBlkTimely_Freq <- spread(df2, Warehouse_block, n)
+#normal bar chart
+barplot(WarehouseBlk_Freq$freq,
+        names.arg = WarehouseBlk_Freq$Warehouse_block,
+        col = rainbow(5),
+        main = "Frequency Distribution of Warehouse block",
+        xlab = "Warehouse Blocks",)
+
+#clustered bar chart
+#extract and convert to matrix
+df2 <- Ecommerceshipping %>% group_by(Warehouse_block, Reached.on.Time_Y.N) %>% tally()
+WarehouseBlkTimely_Freq <- spread(df2, Warehouse_block, n)
+matrix.WTtable <- as.matrix(WarehouseBlkTimely_Freq[,c(2:6)])
+
+barplot(matrix.WTtable,
+        main = "Different warehouse blocks and delivery time",
+        col = c("firebrick2", "darkorange4"),
+        ylim = c(0, 2400),
+        xlab = "Warehouse blocks",
+        beside = TRUE)
+
+legend("topleft",
+       fill = c("firebrick2", "darkorange4"),
+       legend = WarehouseBlkTimely_Freq$Reached.on.Time_Y.N)
+
+```
+
+## Statistical Measures and Probability
+### Pareto Analysis
+```{r pareto analysis, echo = TRUE}
+#Extract relevant data, x
+CP <- Ecommerceshipping %>% 
+  select(Cost_of_the_Product) %>% 
+  arrange(desc(Cost_of_the_Product))
+
+#compute percentage of x over total x
+CP$Percentage <- CP$Cost_of_the_Product / sum(CP$Cost_of_the_Product)
+
+#compute cumulative percentage for x
+CP$Cum <- cumsum(CP$Percentage)
+
+#compute cumulative percentage of customers/clients, n (basically number of data entry)
+CP$Cum.cust <- as.numeric(rownames(Ecommerceshipping))/nrow(Ecommerceshipping)
+
+#number of n contributing to at least 80% of x 
+which(CP$Cum > 0.8)[1]
+
+#percentage of total x that contributes to 80%
+(which(CP$Cum > 0.8)[1])/nrow(Ecommerceshipping)
+
+```
+### Outlier Analysis
+Finding outliers with empirical rule - ONLY FOR NORMALLY DISTRIBUTED
+``` {r outlier1, echo = TRUE}
+plot(d1$Income, main = "Income of Customers", xlab = "Number of Customers", ylab = "Income")
+LL <- mean(d1$Income) - 3 * (sd(d1$Income))
+UL <- mean(d1$Income) + 3 * (sd(d1$Income))
+abline(h = UL, col = "red")
+abline(h = LL, col = "blue")
+```
+
+Finding outliers with box plots
+``` {r outlier2, echo = TRUE}
+#plot X as well as box plots of X with range 3 for extreme outliers and 1.5 for mild outliers
+par(mfrow=c(1,3)) #this function makes plots below be displayed together
+hist(d1$Income,
+     labels = TRUE,
+     xlim = c(20000,120000),
+     ylim = c(0,60),
+     main = "Distribution of X",
+     xlab = "X")
+boxplot(d1$Income, range = 3)
+boxplot(d1$Income, range = 1.5)
+```
+
+### Computing probabilites
+Probability is computed exactly like in any basic Math/Stat question. Find possible number of occurence and divide by total. In R, use nrow function to get number of rows in the tables that is already filtered for the question.
+``` {r probability, echo = TRUE}
+df195 <- d1 %>% filter(Product == "TM195")
+df62k <- df195 %>% filter(Income > 62000)
+nrow(df62k)/nrow(df195)
+
+df.male <- d1 %>% filter(Gender == "Male")
+df.male798 <- df.male %>% filter(Product == "TM798")
+nrow(df.male798)/nrow(df.male)
+```
+
+## Sampling and Estimation
+### Checking for Normality and transforming to normal
+Remember to check for outliers before checking for normality!
+``` {r normality, echo = TRUE}
+#checking with qqplot
+qqnorm(d1$Age, ylab = "Sample quantiles for Age")
+qqline(d1$Age, col = 'red')
+
+#check with Shapiro-Wilk test
+shapiro.test(d1$Age)
+
+#Tranforming using transformTurkey
+d1$AgeNormal = transformTukey(d1$Age, plotit = TRUE)
+```
+### Computing Predicton Interval
+Use transformed data to compute mean, sd, upper and lower limit. For 95% PI, use 0.025 or 0.975 in  qt(). For 90% PI, use 0.05 or 0.95. After calculation, always transform back values using the formula from transformTurkey() function.
+``` {r prediction interval, echo = T}
+m.age <- mean(d1$AgeNormal)
+sd.age <- sd(d1$AgeNormal)
+uPI95norm <- m.age - (qt(0.025, df = (nrow(d1) - 1)) * sd.age * sqrt(1+ 1/nrow(d1)))
+lPI95norm <- m.age + (qt(0.025, df = (nrow(d1) - 1)) * sd.age * sqrt(1+ 1/nrow(d1)))
+cbind(lPI95norm, uPI95norm)
+
+#transform back above values
+uPI95 <- (-uPI95norm)^(1/-1.25)
+lPI95 <- (-lPI95norm)^(1/-1.25)
+print(cbind(lPI95, uPI95), digits = 4)
+```
+### Computing Confidence Interval
+Unlike PI, there is no need to check for normality and outliers. For 95% interval, use 0.025 for t or z value. Can use 0.975 but swap +/- sign. (refer to sampling and estimation notes for more)
+
+For computing CI with known Population SD, use z value:
+``` {r confidence interval - known SD, echo = T}
+#sample mean +/- z-value * (sd/sqrt(n))
+uCI95 <- mean(d1$Age) - qnorm(0.025) * sd(d1$Age)/sqrt(nrow(d1))
+lCI95 <- mean(d1$Age) + qnorm(0.025) * sd(d1$Age)/sqrt(nrow(d1))
+print(cbind(lCI95, uCI95), digits = 4)
+```
+For computing CI with unknown Population SD, use t value:
+``` {r confidence interval - unknown SD, echo = T}
+#sample mean +/- t-value * (sd/sqrt(n))
+uCI95 <- mean(d1$Age) - qt(0.025, df = nrow(d1) - 1) * sd(d1$Age)/sqrt(nrow(d1))
+lCI95 <- mean(d1$Age) + qt(0.025, df = nrow(d1) - 1) * sd(d1$Age)/sqrt(nrow(d1))
+print(cbind(lCI95, uCI95), digits = 4)
+```
+For computing CI for a proportion:
+``` {r confidence interval - proportion, echo = T}
+#let prop be proportion of variable mentioned in qn over total
+#prop +/- z-value * (sqrt(prop(1 - prop) / n))
+
+dmale <- d1 %>% filter(Gender == 'Male')
+pmale <- nrow(dmale)/nrow(d1)
+lCIpmale<- pmale + (qnorm(0.025)*sqrt(pmale*(1-pmale)/nrow(d1)))
+uCIpmale <- pmale - (qnorm(0.025)*sqrt(pmale*(1-pmale)/nrow(d1)))
+print(cbind(lCIpmale, uCIpmale), digits = 4)
+```
+
+## Hypothesis Testing
+Refer to flowchart:
+![Test Statistics and when to use them](\Users\muhdm\OneDrive\Pictures\for rmarkdown\test_statistics.png)
+
+### One-Sample
+``` {r one sample, echo = F}
+```
+
+### Two-sample
+``` {r two sample, echo = T}
+#t.test(y~x) where y is a numeric and x is a factor
+t.test(Income ~ Gender, data = d1)
+#t.test(y1,y2) where both are numeric
+```
+
+### More than 2 sample
+For comparison of mean use either ANOVA or welch. Check if the variables meet the assumptions of ANOVA - 
+  1. Randomly and independently obtained
+  2. Normally distributed
+  3. Have equal variances (use welch if not equal)
+``` {r >2 sample, echo = T}
+#check normality (refer above)
+#check equal variance - fligner test
+
+#WELCH TEST
+welch.prodIncome <-d1 %>% welch_anova_test(Income ~ Product)
+welch.prodIncome
+#WELCH TEST - POST-HOC
+gh.prodIncome <- games_howell_test(d1, Income ~ Product)
+gh.prodIncome
+
+#ANOVA TEST
+aov.prodIncome <- aov(d1$Income ~ d1$Product)
+summary(aov.prodIncome)
+#ANOVA - POST-HOC
+TukeyHSD(aov.prodIncome)
+```
+
+## Linear Regression
+### Simple LM
+Linear regression model: Y = b0 + b1 * X + e
+When typing out the linear regression model equation make sure to include the error term, e!
+``` {r simple linear regression, echo = T}
+summary(lm(recid$durat ~recid$tserved, recid))
+```
+
+Example of Intepretation of variable:
+The coef before tserved is (-0.25327) and it means that "one more month increase in prison time (penalty) decreases the recidivism duration by 0.25327 month, **on average**". It is statistically different from zero from the large t-value and extremely small p-value.
+
+Template:
+The coef before x is (x-value) and it means that "one unit of increase in x decrease/increase the y by x-value, **on average**’’. It is statistically different from zero from the large t-value and extremely small p-value. OR Small t-value and large p-value imply that we fail to reject the null hypothesis that slope coef beta for x is zero. 
+
+### Multivariate LM
+``` {r multivariate linear regression, echo = T}
+fit_d = lm(durat ~ tserved + drugs + alcohol + priors + workprg, data = recid)
+summary(fit_d)
+```
+For multivariate linear regression, template is similar. Template:
+
+The coef before x is (x-value) and it means that "one unit of increase in x decrease/increase the y by x-value, **on average, holding all other independent variables constant**”. It is statistically different from zero from the large t-value and extremely small p-value. OR  Small t-value and large p-value imply that we fail to reject the null hypothesis that slope coef beta for X is zero.
+
+### Checking assumptions of LM
+Assumptions of linear regression mostly concerns the error term , e.
+![Assumptions of Linear Regression Model](\Users\muhdm\OneDrive\Pictures\for rmarkdown\assumption_LM.png)
+X-Y Scatter plot to check linearity:
+``` {r scatter plot, echo = T}
+#plot(x, y, main = "name here", xlab ="", ylab = "")
+plot(recid$tserved, recid$durat)
+```
+Residual and Residual QQ plots to check other assumptions:
+``` {r residual plot, echo = T}
+# residual plot (resid vs. fitted value)
+plot(fit_d, 1)
+# residual Q-Q plot
+plot(fit_d, 2)
+```
+Taken from model answer in Tutorial 6:
+From the residual plot, we can see a significant decreasing pattern of residuals when fitted value gets larger. This implies not only autocorrelation but a strong correlation between the residuals and fitted value y^ or implicitly some of independent variables X’s as well. The latter is more sever, violating assumption of mean-zero error. The OLS estimator is not valid, in terms of (1) biased estimate and (2) wrong standard error and invalid inference.
+
+Residual Q-Q plot also shows that the plot is tilted away from 45 degree line, violating the assumption that the error follows a normal distribution. Consistent with what we found from residual plot.
+
+Note: The failure of mean-zero error is likely due to missing variables, i.e. some key variables that are unobserved (thus left in the error term) to us but correlate with independent variables X’s. More inspection thus is needed to draw a valid conclusion.
+
+### Prediction
+``` {r}
+#type in new subject as a data frame with all relevant variables
+fit_f = lm(follow ~ rules + age + tserved + married,  data = recid)
+newoffender = data.frame(rules = 0, age = 32*12, tserved = 3*12+7, married = 1)
+predict(fit_f, newdata = newoffender)
+```
+
+## Logistic Regression and Time Series
+### Genaralized LM
+glm() is used when the Y variable is a binary/categorical (instead of numeric). Use glm() instead of lm() and with 'family = binomial'.
+``` {r generalized LM, echo = T}
+logit_s = glm(super ~ rules + age + tserved + married + black, family = binomial, data = recid)
+summary(logit_s)
+```
+
+### Prediction
+To predict probabiity of binary X being a success, add type = 'response' into predict() function.
+``` {r}
+#type in new subject as a data frame with all relevant variables
+newclient = data.frame(rules = 0, age = 46*12, tserved = 3*12+7, married = 1, black = 0)
+predict(logit_s, newdata = newclient, type = 'response')
+```
+``` {r sgfertil, include = F}
+sgfertil = read.csv(file = 'SGfertil20.csv', header= TRUE)
+colnames(sgfertil)[1]='Data.Series'
+
+sgfertil = sgfertil %>% 
+  # given our focus in univariate time-series analysis on total fertility rate..
+  select(Data.Series, Total.Fertility.Rate..Per.Female.) %>%
+  # rename
+  # sort the data bt ascending on year
+  arrange(Data.Series)
+# extract the key time series of our interest and convert it to ts obj
+gfrsg = ts(sgfertil$Total.Fertility.Rate..Per.Female., start = 1960, end = 2020, frequency = 1)
+```
+### Plot Time series
+
+```
+```
+### Plot Moving average
+``` {r moving average, echo + T}
+# n = is the window length
+gfrsg_ma6 = TTR::SMA(sgfertil$Total.Fertility.Rate..Per.Female., n = 6) 
+ts.plot(gfrsg_ma6)
+```
+Usage of HoltWinters() depends on trend, seasonality and parameters of time series.
+``` {r holt winters, echo = T}
+gfrsg_hw = HoltWinters(gfrsg, gamma = FALSE)
+gfrsg_hw
+
+#prediction w HoltWinter
+gfrsg_hwp= predict(gfrsg_hw, n.ahead = 4)
+```
+
+## Data Mining
+``` {r data mine, include = F}
+data('attend')
+# create a binary variable 'pass',
+attend$pass = ifelse(attend$stndfnl > quantile(attend$stndfnl, 0.6), 1, 0)
+# removing NA's in the data, just to avoid some programming issues later. WARNING: don't simply do this in your future projects.
+attend = attend[complete.cases(attend),]
+# Selecting out the independent variables "X".
+attendX = attend %>% select(c("attend", "termGPA", "priGPA", "ACT", "hwrte"))
+psych::pairs.panels(attendX, lm=TRUE)
+```
+
+### Linear Hypothesis Test
+``` {r linear hypo test, echo = T}
+lm_1 = lm(stndfnl ~ attend + termGPA + priGPA + ACT + hwrte + frosh + soph, data = attend)
+linearHypothesis(lm_1, c("termGPA = 0", "priGPA = 0", "ACT = 0"))
+#automated backward model
+step(lm_1, direction = 'backward')
+```
+
+### Principle Component Analysis
+``` {r pca, echo = T}
+attend_pca <- prcomp(attendX, center = TRUE, scale = TRUE)
+summary(attend_pca)
+
+attend$pc1 <- attend_pca$x[,"PC1"]
+attend$pc2 <- attend_pca$x[,"PC2"]
+attend$pc3 <- attend_pca$x[,"PC3"]
+attend$pc4 <- attend_pca$x[,"PC4"]
+
+attend_pca$rotation[,1:4]
+```
+
+
+### Classification (Confusion) Matrix
+Refer to Tutorial 8
+``` {r cm, echo = T}
+#Base R table() OR
+#confusionMatrix()
+```
+
+## Linear Optimization
+### Table Template
+
+Let $X_1$ be ..., $X_2$ be ... and $X_3$ be ...
+Maximize total daily profit using decision variables $X_1$, $X_2$, $X_3$ | Profit = 6000 $X_1$ + 15000 $X_2$ + 23000 $X_3$
+--- | --- 
+Subject to |  
+Labor Time Constraint | 0.5$X_1$ + 2$X_2$ + 4$X_3$ $\leq$ 72
+Machine Time Constraint | 2$X_1$ + 1.5$X_2$ + 1$X_3$ $\leq$ 48
+Non-Negativity Constraint 1 | $X_1$ + $\quad$ + $\quad$ $\geq$ 0
+Non-Negativity Constraint 2 | $\quad$ + $X_2$ + $\quad$ $\geq$ 0
+Non-Negativity Constraint 3 | $\quad$ + $\quad$ + $X_3$ $\geq$ 0
+
+### Solving linear problem
+```{r solve lp, echo = T}
+#All variables based on the table
+obj.fn <- c(6000, 15000, 23000)
+const.mat <- matrix(c(0.5, 2, 4, 2, 1.5, 1), ncol = 3, byrow = TRUE)
+const.dir <- c("<=", "<=")
+const.rhs <- c(72, 48)
+
+#lp() to find output - change to min when finding minimum output
+lp.solution <- lp("max", obj.fn, const.mat, const.dir, const.rhs, compute.sens = TRUE)
+lp.solution$solution
+
+#Maximum output
+lp.solution
+```
+
+### What ifs
+``` {r what if, echo = T}
+# display the lowerbound that current solution remains the same
+print(lp.solution$sens.coef.from)
+
+print(lp.solution$sens.coef.to)
+
+print(lp.solution$duals)
+```
